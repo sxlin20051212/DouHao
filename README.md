@@ -157,7 +157,7 @@
 |------|------|------|
 | 空闲 | `，` | 未开始计时，等待你的指令 |
 | 运行中 | `⏳ 01:23:45` | 正在倒计时，实时显示剩余时间 |
-| 提醒中 | 🔔 | 时间已到，弹出提醒窗口 |
+| 提醒中 | `，` | 时间已到，弹出提醒窗口 |
 
 ---
 
@@ -205,38 +205,6 @@ swift build -c release
 7. 随时可以点击 **取消** 中止当前计时
 
 > 💡 提示：点击面板中的 **❓** 图标可以查看内联的功能说明。
-
----
-
-## 技术架构
-
-| 层面 | 技术 |
-|------|------|
-| UI 框架 | SwiftUI |
-| 系统集成 | AppKit（NSStatusBar、NSWindow、NSPopover） |
-| 事件监听 | CGEvent（鼠标/键盘活动检测） |
-| 动画 | Core Animation（心流模式屏幕边缘光晕） |
-| 数据持久化 | UserDefaults（设置与统计） |
-| 外部依赖 | **无** |
-
-### 代码结构
-
-```
-douhao/
-├── Info.plist          # 应用配置（Bundle ID、版本、系统要求等）
-└── Sources/
-    └── main.swift      # 全部源码（单文件）
-```
-
-**主要模块：**
-
-- `ProgressiveMode` — 渐进式提醒的两种策略枚举（减半 / 固定减少）
-- `TimerViewModel` — 核心业务逻辑：计时器管理、状态机、设置持久化、统计数据
-- `PopoverContent` — 菜单栏弹出面板的 UI 层（空闲/运行/提醒三种状态视图）
-- `ProgressiveSettingsView` — 渐进式提醒的详细设置子面板
-- `AlertWindowController` / `AlertContentView` — 提醒弹窗（确认 → 显示休息时长 → 继续/结束）
-- `StatusBarController` — 菜单栏管理：状态显示、弹窗协调、App 绑定监听、心流光晕动画、休息后活动检测
-- `AppDelegate` — 应用入口，设置菜单栏模式（隐藏 Dock 图标）
 
 ---
 

@@ -3,4 +3,4 @@
 
 # Build artifacts
 build/
-*.dmg
+# *.dmg files are tracked — see README for download link

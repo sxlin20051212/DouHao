@@ -42,7 +42,11 @@
 
 ### 下载 DMG
 
-前往 [Releases](https://github.com/sxlin20051212/DouHao/releases) 页面下载最新版 `.dmg` 文件。
+<a href="https://github.com/sxlin20051212/DouHao/raw/main/douhao/%EF%BC%8C.dmg">
+  <img src="https://img.shields.io/badge/Download-DMG-brightgreen?style=for-the-badge" alt="Download DMG">
+</a>
+
+点击上方按钮直接下载最新版 `.dmg`。
 
 1. 打开 DMG，把 `，.app` 拖到 `Applications` 文件夹
 2. 首次打开时，如果 macOS 提示"无法验证开发者"：

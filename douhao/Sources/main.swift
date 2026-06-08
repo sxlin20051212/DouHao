@@ -118,6 +118,17 @@ class TimerViewModel: ObservableObject {
         defaults.set(todayRestCount, forKey: "todayRestCount")
     }
 
+    /// 当系统日期变更时（午夜跨天），将今日统计清零
+    func checkDayChange() {
+        let today = Self.todayKey()
+        let defaults = UserDefaults.standard
+        if let savedDay = defaults.string(forKey: "statDay"), savedDay != today {
+            todayUsageSeconds = 0
+            todayRestCount = 0
+            saveStats()
+        }
+    }
+
     private func addElapsedTime() {
         if let start = timerStartDate {
             let elapsed = Int(Date().timeIntervalSince(start))
@@ -1133,6 +1144,14 @@ class StatusBarController: NSObject {
             object: nil
         )
 
+        // Listen for system calendar day change (midnight) to reset daily stats
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleDayChange(_:)),
+            name: NSNotification.Name.NSCalendarDayChanged,
+            object: nil
+        )
+
         // Post-dismiss auto-resume: when user dismisses alert, wait 3 min then monitor input
         viewModel.onAlertDismissed = { [weak self] in
             self?.startPostDismissMonitor()
@@ -1162,6 +1181,12 @@ class StatusBarController: NSObject {
         else { return }
         DispatchQueue.main.async { [weak self] in
             self?.viewModel.startTimer()
+        }
+    }
+
+    @objc private func handleDayChange(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            self?.viewModel.checkDayChange()
         }
     }
 

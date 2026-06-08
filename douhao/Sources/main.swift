@@ -37,6 +37,7 @@ class TimerViewModel: ObservableObject {
     @Published var progressiveFixedMin: Int = 5
     @Published var progressiveFixedSec: Int = 0
     @Published var progressiveMinInterval: Int = 10
+    @Published var periodMode: Bool = false
     private var consecutiveFlowCount: Int = 0
     var alertTriggeredAt: Date?
 
@@ -96,6 +97,11 @@ class TimerViewModel: ObservableObject {
            !savedID.isEmpty {
             boundAppBundleID = savedID
             boundAppName = defaults.string(forKey: "boundAppName") ?? "未知"
+            // Restore period mode only when binding exists
+            periodMode = defaults.bool(forKey: "periodMode")
+        } else {
+            periodMode = false
+            UserDefaults.standard.set(false, forKey: "periodMode")
         }
     }
 
@@ -133,8 +139,10 @@ class TimerViewModel: ObservableObject {
     func clearBinding() {
         boundAppBundleID = nil
         boundAppName = nil
+        periodMode = false
         UserDefaults.standard.removeObject(forKey: "boundAppBundleID")
         UserDefaults.standard.removeObject(forKey: "boundAppName")
+        UserDefaults.standard.set(false, forKey: "periodMode")
     }
 
     private var timer: Timer?
@@ -152,6 +160,7 @@ class TimerViewModel: ObservableObject {
         case idle
         case running
         case alerting
+        case periodAlerting
     }
 
     func startTimer() {
@@ -217,6 +226,17 @@ class TimerViewModel: ObservableObject {
         todayRestCount += 1
         saveStats()
         alertTriggeredAt = Date()
+        if periodMode {
+            timer?.invalidate()
+            timer = nil
+            _progressiveBaseSeconds = nil
+            hasProgressiveTriggered = false
+            reachedProgressiveMin = false
+            screenState = .periodAlerting
+            onStateChange?(.periodAlerting)
+            playAlertSound()
+            return
+        }
         if progressiveReminder {
             hasProgressiveTriggered = true
         }
@@ -442,6 +462,8 @@ struct PopoverContent: View {
                 runningView
             case .alerting:
                 alertingView
+            case .periodAlerting:
+                periodAlertingView
             }
         }
         .padding(14)
@@ -493,6 +515,9 @@ struct PopoverContent: View {
                                 .font(.system(size: 10)).lineLimit(nil)
                             Text("继续时自动重启计时").font(.system(size: 10, weight: .semibold))
                             Text("点击继续后自动开始新的倒计时")
+                                .font(.system(size: 10)).lineLimit(nil)
+                            Text("句号模式").font(.system(size: 10, weight: .semibold))
+                            Text("倒计时到后弹窗显示5秒倒计时，到时间后自动强制关闭当前正在使用的应用")
                                 .font(.system(size: 10)).lineLimit(nil)
                             Text("休息时检测活动").font(.system(size: 10, weight: .semibold))
                             Text("结束10秒后检测活动，闪烁蓝光后再检一次，两次均检测到则自动开始计时")
@@ -724,6 +749,27 @@ struct PopoverContent: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
 
+            HStack(spacing: 2) {
+                Toggle(isOn: Binding(
+                    get: { vm.periodMode },
+                    set: { newValue in
+                        vm.periodMode = newValue
+                        UserDefaults.standard.set(newValue, forKey: "periodMode")
+                    }
+                )) {
+                    Text("句号模式")
+                        .font(.system(size: 10))
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .disabled(vm.boundAppBundleID == nil)
+            }
+            if vm.boundAppBundleID == nil {
+                Text("请先绑定App")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
+
             Button(action: { NSApp.terminate(nil) }) {
                 Text("退出逗号")
                     .font(.system(size: 10))
@@ -763,6 +809,26 @@ struct PopoverContent: View {
 
             Button(action: { vm.dismissAlert() }) {
                 Text("我知道了")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 5)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+    }
+
+    var periodAlertingView: some View {
+        VStack(spacing: 10) {
+            Text("。")
+                .font(.system(size: 36))
+
+            Text("句号模式已触发\n即将强制关闭当前应用")
+                .font(.system(size: 12, weight: .semibold))
+                .multilineTextAlignment(.center)
+
+            Button(action: { vm.dismissAlert() }) {
+                Text("取消")
                     .font(.system(size: 12, weight: .medium))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 5)
@@ -896,12 +962,116 @@ struct AlertContentView: View {
     }
 }
 
+// MARK: - Period Alert Window
+
+class PeriodAlertWindowController: NSWindowController {
+    private var countdownTimer: Timer?
+    private var countdownSeconds = 5
+
+    convenience init(onCancel: @escaping () -> Void, onForceQuit: @escaping () -> Void) {
+        let contentView = PeriodAlertContentView(
+            onCancel: {
+                onCancel()
+            },
+            onForceQuit: {
+                onForceQuit()
+            }
+        )
+        let hostingController = NSHostingController(rootView: contentView)
+        let fitted = hostingController.view.fittingSize
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: fitted.width, height: fitted.height),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = ""
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.contentViewController = hostingController
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        window.isReleasedWhenClosed = false
+
+        // Center on screen
+        if let screen = NSScreen.main {
+            let sf = screen.visibleFrame
+            let x = sf.midX - fitted.width / 2
+            let y = sf.midY - fitted.height / 2
+            window.setFrameOrigin(NSPoint(x: x, y: y))
+        }
+
+        self.init(window: window)
+    }
+
+    override init(window: NSWindow?) {
+        super.init(window: window)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+struct PeriodAlertContentView: View {
+    let onCancel: () -> Void
+    let onForceQuit: () -> Void
+    @State private var countdownSeconds: Int = 5
+    let countdownTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text("。")
+                .font(.system(size: 68))
+                .frame(maxWidth: .infinity)
+                .offset(y: -20)
+
+            Text("句号模式")
+                .font(.system(size: 14, weight: .semibold))
+
+            Text("即将强制关闭当前应用\n\(countdownSeconds) 秒后执行")
+                .font(.system(size: 12))
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+
+            Text("\(countdownSeconds)")
+                .font(.system(size: 48, weight: .bold, design: .monospaced))
+                .foregroundColor(.red)
+                .onReceive(countdownTimer) { _ in
+                    if countdownSeconds > 0 {
+                        countdownSeconds -= 1
+                    }
+                    if countdownSeconds <= 0 {
+                        onForceQuit()
+                    }
+                }
+
+            Button(action: { onCancel() }) {
+                Text("取消")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(18)
+        .frame(width: 200)
+        .fixedSize()
+    }
+}
+
 // MARK: - Status Bar Controller
 
 class StatusBarController: NSObject {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var alertController: AlertWindowController?
+    private var periodAlertController: PeriodAlertWindowController?
     let viewModel = TimerViewModel()
 
     // Comma icon image (loaded from bundle Resources)
@@ -941,8 +1111,11 @@ class StatusBarController: NSObject {
                 self?.updateStatusBar(state: state)
                 if state == .alerting {
                     self?.showAlertWindow()
+                } else if state == .periodAlerting {
+                    self?.showPeriodAlertWindow()
                 } else {
                     self?.dismissAlertWindow()
+                    self?.dismissPeriodAlertWindow()
                 }
             }
         }
@@ -1117,11 +1290,21 @@ class StatusBarController: NSObject {
             button.title = ""
             button.imagePosition = .imageOnly
             stopStatusBarUpdateTimer()
+        case .periodAlerting:
+            let stopImage = NSImage(
+                systemSymbolName: "stop.circle.fill",
+                accessibilityDescription: "stop"
+            )
+            stopImage?.size = NSSize(width: 12, height: 12)
+            button.image = stopImage
+            button.title = ""
+            button.imagePosition = .imageOnly
+            stopStatusBarUpdateTimer()
         }
     }
 
     @objc private func togglePopover() {
-        if viewModel.screenState == .alerting {
+        if viewModel.screenState == .alerting || viewModel.screenState == .periodAlerting {
             showAlertWindow()
             return
         }
@@ -1169,6 +1352,34 @@ class StatusBarController: NSObject {
     private func dismissAlertWindow() {
         alertController?.close()
         alertController = nil
+    }
+
+    private func showPeriodAlertWindow() {
+        popover.performClose(nil)
+        dismissPeriodAlertWindow()
+        periodAlertController = PeriodAlertWindowController(
+            onCancel: { [weak self] in
+                self?.dismissPeriodAlertWindow()
+                self?.viewModel.dismissAlert()
+            },
+            onForceQuit: { [weak self] in
+                self?.dismissPeriodAlertWindow()
+                // Force quit only the bound application
+                if let bundleID = self?.viewModel.boundAppBundleID,
+                   let targetApp = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
+                    targetApp.forceTerminate()
+                }
+                self?.viewModel.dismissAlert()
+            }
+        )
+        periodAlertController?.showWindow(nil)
+        periodAlertController?.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func dismissPeriodAlertWindow() {
+        periodAlertController?.close()
+        periodAlertController = nil
     }
 
     // MARK: - Post-Dismiss Auto-Resume

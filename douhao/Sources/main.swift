@@ -38,6 +38,7 @@ class TimerViewModel: ObservableObject {
     @Published var progressiveFixedSec: Int = 0
     @Published var progressiveMinInterval: Int = 10
     @Published var periodMode: Bool = false
+    @Published var silentMode: Bool = false
     private var consecutiveFlowCount: Int = 0
     var alertTriggeredAt: Date?
 
@@ -92,6 +93,8 @@ class TimerViewModel: ObservableObject {
         if savedMinInt > 0 {
             progressiveMinInterval = savedMinInt
         }
+        // Restore silent mode
+        silentMode = defaults.bool(forKey: "silentMode")
         // Restore binding
         if let savedID = defaults.string(forKey: "boundAppBundleID"),
            !savedID.isEmpty {
@@ -316,6 +319,7 @@ class TimerViewModel: ObservableObject {
     }
 
     private func playAlertSound() {
+        guard !silentMode else { return }
         alertSound = NSSound(named: "Ping")
         alertSound?.loops = true
         alertSound?.play()
@@ -740,6 +744,22 @@ struct PopoverContent: View {
                     }
                 )) {
                     Text("休息时检测活动")
+                        .font(.system(size: 10))
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+            }
+
+            HStack(spacing: 2) {
+                Toggle(isOn: Binding(
+                    get: { vm.silentMode },
+                    set: { newValue in
+                        vm.silentMode = newValue
+                        UserDefaults.standard.set(newValue, forKey: "silentMode")
+                    }
+                )) {
+                    Text("静音提醒")
                         .font(.system(size: 10))
                 }
                 .toggleStyle(.switch)
